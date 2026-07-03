@@ -1,0 +1,21 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.8.33422.545
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HospitalReport.App", "src\HospitalReport.App\HospitalReport.App.csproj", "{AEF45E5A-1B2C-4D18-A9B1-0F0A04209787}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{AEF45E5A-1B2C-4D18-A9B1-0F0A04209787}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AEF45E5A-1B2C-4D18-A9B1-0F0A04209787}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AEF45E5A-1B2C-4D18-A9B1-0F0A04209787}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AEF45E5A-1B2C-4D18-A9B1-0F0A04209787}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal
