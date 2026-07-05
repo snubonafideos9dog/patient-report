@@ -1,4 +1,8 @@
+using System.Text;
 using System.Windows;
+using FellowOakDicom;
+using FellowOakDicom.Imaging;
+using FellowOakDicom.Imaging.NativeCodec;
 using HospitalReport.App.Configuration;
 using HospitalReport.App.Services.Ai;
 using HospitalReport.App.Services.Emr;
@@ -18,11 +22,24 @@ public partial class App : Application
 
     protected override async void OnStartup(StartupEventArgs e)
     {
+        // 한글 DICOM 문자셋(ISO 2022 IR 149 / EUC-KR, CP949) 디코딩용 코드페이지 등록
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+
+        // fo-dicom: 영상 렌더러(WinForms Bitmap) + JPEG 등 압축 해제용 네이티브 코덱 등록
+        new DicomSetupBuilder()
+            .RegisterServices(s => s
+                .AddImageManager<WinFormsImageManager>()
+                .AddTranscoderManager<NativeTranscoderManager>())
+            .Build();
+
         AppHost = Host.CreateDefaultBuilder()
             .ConfigureAppConfiguration((context, config) =>
             {
                 config.SetBasePath(AppContext.BaseDirectory);
                 config.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
+                // 실제 접속 정보/키는 여기(git 제외)에서 덮어쓴다. 없으면 무시.
+                config.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
+                config.AddEnvironmentVariables("HOSPITALREPORT_");
             })
             .ConfigureServices((context, services) =>
             {

@@ -17,12 +17,18 @@
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.0" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="9.0.0" />
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="9.0.0" />
-    <PackageReference Include="fo-dicom" Version="5.1.4" />
-    <PackageReference Include="fo-dicom.Imaging.Desktop" Version="5.1.4" />
+    <PackageReference Include="fo-dicom" Version="5.2.5" />
+    <PackageReference Include="fo-dicom.Imaging.Desktop" Version="5.2.5" />
+    <PackageReference Include="fo-dicom.Codecs" Version="5.16.7" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4022.49" />
+    <PackageReference Include="System.Text.Encoding.CodePages" Version="9.0.0" />
   </ItemGroup>
 
   <ItemGroup>
     <None Update="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="appsettings.Local.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>

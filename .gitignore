@@ -3,3 +3,8 @@ obj/
 *.user
 *.suo
 appsettings.Development.json
+
+# 로컬 시크릿 (DB 접속정보, API 키) — 커밋 금지
+appsettings.Local.json
+appsettings.*.Local.json
+secrets.json

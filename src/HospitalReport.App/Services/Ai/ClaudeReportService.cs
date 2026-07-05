@@ -6,6 +6,7 @@ using System.Text.Json;
 using HospitalReport.App.Configuration;
 using HospitalReport.App.Models;
 using HospitalReport.App.Services.Interfaces;
+using HospitalReport.App.Services.Report;
 
 namespace HospitalReport.App.Services.Ai;
 
@@ -22,8 +23,8 @@ public class ClaudeReportService : IClaudeReportService
 
     public async Task<GeneratedReport> GenerateReportAsync(
         PatientInfo patient,
-        ChartNote chart,
-        XrayStudy xrayStudy,
+        ChartNote? chart,
+        StudyItem study,
         string? previewImagePath,
         CancellationToken cancellationToken = default)
     {
@@ -34,6 +35,7 @@ public class ClaudeReportService : IClaudeReportService
         환자 친화적인 문장으로 쓴다.
         불필요한 민감정보 반복 금지.
         의사 최종 검토 전 단계의 초안이라는 전제를 유지한다.
+        진료 차트가 제공되지 않은 경우, 영상 검사명과 영상 소견 위주로 일반적인 안내를 작성한다.
         반드시 아래 JSON 객체만 출력한다. 마크다운 코드블록 금지.
 
         {
@@ -47,6 +49,22 @@ public class ClaudeReportService : IClaudeReportService
         }
         """;
 
+        var chartSection = chart is null
+            ? """
+            [진료 차트]
+            - (EMR 차트 정보 없음: 아래 영상 정보만으로 작성)
+            """
+            : $"""
+            [최신 진료 차트]
+            - 진료일: {chart.VisitDate:yyyy-MM-dd}
+            - 담당의: {chart.DoctorName}
+            - 주호소: {chart.ChiefComplaint}
+            - Assessment: {chart.Assessment}
+            - Plan: {chart.Plan}
+            - 원문차트:
+            {chart.RawText}
+            """;
+
         var userText = $"""
         [환자 정보]
         - 환자번호: {patient.PatientId}
@@ -54,26 +72,20 @@ public class ClaudeReportService : IClaudeReportService
         - 나이: {patient.Age}
         - 성별: {patient.Sex}
 
-        [최신 진료 차트]
-        - 진료일: {chart.VisitDate:yyyy-MM-dd}
-        - 담당의: {chart.DoctorName}
-        - 주호소: {chart.ChiefComplaint}
-        - Assessment: {chart.Assessment}
-        - Plan: {chart.Plan}
-        - 원문차트:
-        {chart.RawText}
+        {chartSection}
 
-        [X-ray 정보]
-        - 촬영일: {xrayStudy.StudyDate:yyyy-MM-dd}
-        - Modality: {xrayStudy.Modality}
-        - StudyDescription: {xrayStudy.StudyDescription}
-        - SeriesDescription: {xrayStudy.SeriesDescription}
+        [영상 검사 정보]
+        - 촬영일: {study.StudyDate:yyyy-MM-dd}
+        - 종류: {study.ModalityGroup} ({study.Modality})
+        - 검사명: {study.StudyDescription}
+        - 시리즈: {study.SeriesDescription}
+        - 영상 수: {study.ImageCount}장
 
         [작성 목표]
-        - 환자가 이해하기 쉬운 경과 설명
-        - 현재 치료 경과 요약
+        - 환자가 이해하기 쉬운 검사/경과 설명
+        - (차트가 있으면) 현재 치료 경과 요약, 없으면 영상 검사 위주 안내
         - 재진 필요성 자연스럽게 안내
-        - 과도한 공포 유발 금지
+        - 과도한 공포 유발 금지, 단정적 확진 금지
         - shortKakaoMessage는 120자 안팎으로 작성
         """;
 
@@ -143,6 +155,130 @@ public class ClaudeReportService : IClaudeReportService
             throw new InvalidOperationException("Claude 응답 JSON 파싱 실패");
 
         return result;
+    }
+
+    public async Task<PostureAnalysisReport> GenerateComparisonReportAsync(
+        PatientInfo patient,
+        StudyItem beforeStudy,
+        StudyItem afterStudy,
+        ComparisonImageSet images,
+        CancellationToken cancellationToken = default)
+    {
+        var systemPrompt = """
+        당신은 정형/재활 영상의학 판독 보조자다. 치료 전/후 전척추 X-ray(전면 AP, 측면 Lateral)를
+        비교해 척추·골반의 정렬과 자세 변화를 분석한다.
+        반드시 한국어로 작성한다.
+        이것은 '참고용 초안'이며 의사의 최종 판독·진단을 대체하지 않는다.
+        단정적 확진, 수치 과장, 근거 없는 추정은 금지한다.
+        실제로 영상에서 보이는 부위/소견만 다룬다(보이지 않으면 넣지 않는다).
+        각 부위 변화는 반드시 개선/유지/관찰필요/악화 중 하나로 표기한다.
+        각 소견에는 가장 잘 보이는 뷰 하나를 view(전면 또는 측면)로 지정한다.
+        전면(AP)에서는 좌우 체중편향·척추측만(scoliosis)·골반 비대칭 등을,
+        측면(Lateral)에서는 경추전만·흉추후만·머리전방자세·골반 전방이동 등을 위주로 본다.
+        region 이름에는 부위(머리/경추/흉추/요추/골반/체중편향/측만 등)가 드러나게 쓴다.
+        반드시 아래 JSON만 출력한다. 마크다운 코드블록 금지.
+
+        {
+          "title": "",
+          "subtitle": "",
+          "overallSummary": "",
+          "findings": [
+            { "region": "", "change": "개선|유지|관찰필요|악화", "view": "전면|측면", "details": ["", ""] }
+          ],
+          "overallAssessment": ["", ""]
+        }
+        """;
+
+        var contentBlocks = new List<object>();
+
+        AddResizedImageBlock(contentBlocks, images.BeforeFrontal);
+        AddText(contentBlocks, $"↑ [치료 전 · 전면(AP)] 촬영일 {beforeStudy.StudyDate:yyyy-MM-dd}, {beforeStudy.StudyDescription}");
+        AddResizedImageBlock(contentBlocks, images.BeforeLateral);
+        AddText(contentBlocks, images.BeforeLateral != null ? "↑ [치료 전 · 측면(Lateral)]" : "");
+        AddResizedImageBlock(contentBlocks, images.AfterFrontal);
+        AddText(contentBlocks, $"↑ [치료 후 · 전면(AP)] 촬영일 {afterStudy.StudyDate:yyyy-MM-dd}, {afterStudy.StudyDescription}");
+        AddResizedImageBlock(contentBlocks, images.AfterLateral);
+        AddText(contentBlocks, images.AfterLateral != null ? "↑ [치료 후 · 측면(Lateral)]" : "");
+
+        AddText(contentBlocks, $"""
+            [환자] {patient.PatientName} / 번호 {patient.PatientId} / {patient.Sex} / {patient.Age}세
+
+            위 치료 전/후 (전면·측면) 영상을 비교해 다음을 JSON으로 작성하라:
+            - title: 레포트 제목 (예: "X-ray 치료 전/후 개선 분석")
+            - subtitle: 비교 기간과 핵심을 한 줄로 (두 촬영일 포함)
+            - overallSummary: 전반적 체형/정렬 변화 요약 2~3문장
+            - findings: 확인 가능한 부위별 항목. region(부위명), change, view, details(짧은 불릿 1~3개). 부위별로 5~7개 권장.
+            - overallAssessment: 종합평가 체크 항목 3~5개
+            영상만으로 판단 불가한 부위는 넣지 말 것.
+            """);
+
+        var payload = new
+        {
+            model = _settings.Claude.Model,
+            max_tokens = Math.Max(_settings.Claude.MaxTokens, 3500),
+            system = systemPrompt,
+            messages = new[]
+            {
+                new { role = "user", content = contentBlocks.ToArray() }
+            }
+        };
+
+        var responseBody = await SendAsync(payload, cancellationToken);
+        var text = ExtractFirstTextBlock(responseBody);
+        var cleaned = CleanJson(text);
+
+        var result = JsonSerializer.Deserialize<PostureAnalysisReport>(
+            cleaned,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+        if (result is null)
+            throw new InvalidOperationException("Claude 응답 JSON 파싱 실패");
+
+        return result;
+    }
+
+    private static void AddText(List<object> blocks, string text)
+    {
+        if (string.IsNullOrEmpty(text)) return;
+        blocks.Add(new { type = "text", text });
+    }
+
+    private static void AddResizedImageBlock(List<object> blocks, string? imagePath)
+    {
+        if (string.IsNullOrWhiteSpace(imagePath) || !File.Exists(imagePath))
+            return;
+
+        var jpeg = ImageUtil.ToResizedJpeg(imagePath, 1400);
+        blocks.Add(new
+        {
+            type = "image",
+            source = new
+            {
+                type = "base64",
+                media_type = "image/jpeg",
+                data = Convert.ToBase64String(jpeg)
+            }
+        });
+    }
+
+    private async Task<string> SendAsync(object payload, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, _settings.Claude.ApiUrl);
+        request.Headers.Add("x-api-key", _settings.Claude.ApiKey);
+        request.Headers.Add("anthropic-version", _settings.Claude.ApiVersion);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        request.Content = new StringContent(
+            JsonSerializer.Serialize(payload),
+            Encoding.UTF8,
+            "application/json");
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException($"Claude API 호출 실패: {response.StatusCode}\n{body}");
+
+        return body;
     }
 
     private static string ExtractFirstTextBlock(string responseJson)
