@@ -149,6 +149,132 @@ public class PacsFileService : IPacsService
         }, cancellationToken);
     }
 
+    // 파일 경로 → DICOM 메타 캐시 (파일 내용은 불변이므로 한 번만 읽고 재사용 → 새로고침 빠름)
+    private sealed record FileMeta(
+        string Uid, string Pid, string Name, string Sex, string Birth,
+        DateTime? StudyDate, string Modality, string StudyDesc, string SeriesDesc,
+        int Order, string View);
+
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, FileMeta> _fileMetaCache = new();
+
+    // ── 특정 날짜 폴더의 모든 환자 스터디(실시간 워크리스트용) ─────────────
+    public async Task<IReadOnlyList<StudyItem>> GetStudiesForDayAsync(DateTime day, CancellationToken cancellationToken = default)
+    {
+        var root = _settings.Pacs.RootPath;
+        if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root))
+            return Array.Empty<StudyItem>();
+
+        var dayDir = Path.Combine(root, day.ToString("yyyyMM"), day.ToString("dd"));
+        if (!Directory.Exists(dayDir))
+            return Array.Empty<StudyItem>();
+
+        var pattern = string.IsNullOrWhiteSpace(_settings.Pacs.SearchPattern) ? "*.dcm" : _settings.Pacs.SearchPattern;
+        var cap = Math.Max(2000, _settings.Pacs.MaxFilesToScan);
+
+        return await Task.Run(() =>
+        {
+            var byStudy = new Dictionary<string, StudyItem>(StringComparer.Ordinal);
+            var studyFiles = new Dictionary<string, List<(int order, string file, string view, DateTime wt)>>(StringComparer.Ordinal);
+            int filesOpened = 0;
+
+            foreach (var patientDir in EnumerateDirsSafe(dayDir))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (filesOpened >= cap) break;
+                var folderPid = new DirectoryInfo(patientDir).Name;
+
+                foreach (var file in EnumerateFilesSafe(patientDir, pattern))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (filesOpened >= cap) break;
+
+                    if (!_fileMetaCache.TryGetValue(file, out var meta))
+                    {
+                        meta = ReadFileMeta(file);
+                        if (meta != null) _fileMetaCache[file] = meta; // 실패(잠김 등)는 캐시 안 함 → 다음 스캔에 재시도
+                    }
+                    if (meta == null) continue;
+                    filesOpened++;
+
+                    var key = string.IsNullOrWhiteSpace(meta.Uid) ? (Path.GetDirectoryName(file) ?? file) : meta.Uid;
+                    if (!byStudy.TryGetValue(key, out var item))
+                    {
+                        item = new StudyItem
+                        {
+                            PatientId = string.IsNullOrWhiteSpace(meta.Pid) ? folderPid : meta.Pid,
+                            PatientName = meta.Name,
+                            PatientSex = meta.Sex,
+                            PatientBirthDate = meta.Birth,
+                            StudyInstanceUid = meta.Uid,
+                            StudyDate = meta.StudyDate ?? day,
+                            Modality = meta.Modality,
+                            ModalityGroup = StudyItem.ToModalityGroup(meta.Modality),
+                            StudyDescription = meta.StudyDesc,
+                            SeriesDescription = meta.SeriesDesc,
+                            RepresentativeFilePath = file
+                        };
+                        byStudy[key] = item;
+                        studyFiles[key] = new List<(int, string, string, DateTime)>();
+                    }
+                    studyFiles[key].Add((meta.Order, file, meta.View, SafeWriteTime(file)));
+                }
+            }
+
+            var newestPerStudy = new Dictionary<string, DateTime>(StringComparer.Ordinal);
+            foreach (var kv in byStudy)
+            {
+                var files = studyFiles[kv.Key];
+                var ordered = files.OrderBy(x => x.order).ThenBy(x => x.file, StringComparer.Ordinal).ToList();
+                kv.Value.Images = ordered.Select(x => new StudyImage { FilePath = x.file, ViewPosition = x.view, InstanceNumber = x.order }).ToList();
+                kv.Value.ImageFiles = ordered.Select(x => x.file).ToList();
+                kv.Value.ImageCount = ordered.Count;
+                kv.Value.RepresentativeFilePath = ordered[0].file;
+                var newest = files.Count > 0 ? files.Max(x => x.wt) : DateTime.MinValue;
+                newestPerStudy[kv.Key] = newest;
+                kv.Value.StudyTimeText = newest.ToString("HHmmss");
+            }
+
+            // 가장 최근에 쓰인 파일 기준 내림차순 → 방금 찍은 게 맨 위로.
+            return (IReadOnlyList<StudyItem>)byStudy
+                .OrderByDescending(kv => newestPerStudy[kv.Key])
+                .Select(kv => kv.Value)
+                .ToList();
+        }, cancellationToken);
+    }
+
+    private FileMeta? ReadFileMeta(string file)
+    {
+        try
+        {
+            var ds = DicomFile.Open(file).Dataset;
+            int order = int.TryParse(SafeGet(ds, DicomTag.InstanceNumber), out var n) ? n : int.MaxValue;
+            return new FileMeta(
+                SafeGet(ds, DicomTag.StudyInstanceUID),
+                SafeGet(ds, DicomTag.PatientID),
+                SafeGet(ds, DicomTag.PatientName),
+                SafeGet(ds, DicomTag.PatientSex),
+                SafeGet(ds, DicomTag.PatientBirthDate),
+                ParseDicomDate(SafeGet(ds, DicomTag.StudyDate)),
+                SafeGet(ds, DicomTag.Modality),
+                SafeGet(ds, DicomTag.StudyDescription),
+                SafeGet(ds, DicomTag.SeriesDescription),
+                order,
+                SafeGet(ds, DicomTag.ViewPosition));
+        }
+        catch { return null; }
+    }
+
+    private static IEnumerable<string> EnumerateDirsSafe(string dir)
+    {
+        try { return Directory.EnumerateDirectories(dir); }
+        catch { return Enumerable.Empty<string>(); }
+    }
+
+    private static DateTime SafeWriteTime(string file)
+    {
+        try { return File.GetLastWriteTime(file); } catch { return DateTime.MinValue; }
+    }
+
     public async Task<string?> RenderPreviewAsync(string dicomFilePath, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(dicomFilePath) || !File.Exists(dicomFilePath))

@@ -14,6 +14,12 @@ public class PacsSettings
     public int MaxFilesToScan { get; set; } = 5000;
     public string PreviewOutputPath { get; set; } = string.Empty;
     public List<string> PreferredSeriesKeywords { get; set; } = new();
+
+    // 실시간 감지(PacsWatchService) 옵션.
+    // WatchRootPath 가 비면 RootPath 를 감시. (테스트 시 임시 폴더로 대체 가능)
+    public string WatchRootPath { get; set; } = string.Empty;
+    public int WatchIntervalSeconds { get; set; } = 3;   // 폴링 주기
+    public int WatchDebounceSeconds { get; set; } = 4;   // 파일 쓰기가 멈춘 뒤 '완료'로 판단할 대기시간
 }
 
 public class EmrDbSettings

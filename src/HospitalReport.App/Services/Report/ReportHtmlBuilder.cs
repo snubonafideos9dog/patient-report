@@ -185,6 +185,129 @@ public static class ReportHtmlBuilder
         """;
     }
 
+    // 단일 촬영본 판독 소견 → HTML (전면/측면 이미지 + 부위별 소견 + 인상 + 권고).
+    public static string BuildReading(
+        StudyReadingReport report,
+        PatientInfo patient,
+        StudyItem study,
+        string? frontalImagePath,
+        string? lateralImagePath)
+    {
+        var apUri = ImageUtil.ToDataUri(frontalImagePath ?? "", 1100);
+        var latUri = ImageUtil.ToDataUri(lateralImagePath ?? "", 1100);
+
+        var findings = new StringBuilder();
+        int num = 1;
+        foreach (var f in report.Findings)
+        {
+            var details = new StringBuilder();
+            foreach (var d in f.Details) details.Append($"<li>{E(d)}</li>");
+            findings.Append($$"""
+                <div class="fitem hold">
+                  <div class="fnum">{{num}}</div>
+                  <div class="fbody">
+                    <div class="ftitle">{{E(f.Region)}}</div>
+                    <ul>{{details}}</ul>
+                  </div>
+                </div>
+                """);
+            num++;
+        }
+
+        var recs = new StringBuilder();
+        foreach (var r in report.Recommendations)
+            recs.Append($"<li><span class=\"chk\">✓</span>{E(r)}</li>");
+
+        var apStage = Stage("전면 (AP view)", apUri, "");
+        var latStage = Stage("측면 (Lateral view)", latUri, "");
+
+        var patientLine = $"{E(patient.PatientName)} · 번호 {E(patient.PatientId)}"
+                          + (string.IsNullOrWhiteSpace(patient.Sex) ? "" : $" · {E(patient.Sex)}")
+                          + (patient.Age is null ? "" : $" · {patient.Age}세")
+                          + $" · 촬영일 {study.StudyDate:yyyy-MM-dd}";
+
+        var contextBlock = string.IsNullOrWhiteSpace(report.ClinicalContext)
+            ? ""
+            : $"<section class=\"context\"><b>임상 맥락</b> {E(report.ClinicalContext)}</section>";
+
+        return $$"""
+        <!doctype html>
+        <html lang="ko">
+        <head>
+        <meta charset="utf-8">
+        <style>
+          @page { size: A4; margin: 8mm; }
+          * { box-sizing: border-box; }
+          body { font-family:'Malgun Gothic','맑은 고딕',sans-serif; color:#1f2937; margin:0; background:#fff; }
+          .page { max-width: 1000px; margin:0 auto; padding:8px 6px 26px; }
+          header { text-align:center; border-bottom:3px solid #1b5e20; padding-bottom:10px; margin-bottom:14px; }
+          header h1 { font-size:25px; color:#12331a; margin:0 0 6px; }
+          .subtitle { color:#455a64; margin:0 0 4px; font-size:13px; }
+          .patient { color:#607d8b; margin:0; font-size:12px; }
+          .context { background:#fff8e1; border:1px solid #ffe082; border-radius:8px; padding:8px 12px; font-size:12.5px; color:#5d4037; margin-bottom:12px; }
+          h2 { font-size:15px; color:#12331a; margin:18px 0 10px; padding:6px 12px; background:#e8f2ea; border-radius:6px; text-align:center; font-weight:bold; }
+          .top { display:flex; gap:10px; align-items:stretch; }
+          .imgcol { display:flex; gap:10px; flex:1.55; }
+          .imgpanel { flex:1; background:#0e1c2b; border-radius:8px; overflow:hidden; display:flex; flex-direction:column; }
+          .imgpanel .cap { color:#fff; font-weight:bold; font-size:12px; text-align:center; padding:6px; }
+          .stage { position:relative; flex:1; }
+          .stage img.main { width:100%; height:100%; object-fit:contain; background:#0e1c2b; max-height:520px; display:block; }
+          .stage .none { color:#8aa; text-align:center; padding:60px 8px; font-size:12px; }
+          .summarycol { flex:1; background:#f6faf6; border:1px solid #dcedc8; border-radius:8px; padding:8px 10px; }
+          .summarycol .sh { text-align:center; font-weight:bold; color:#1b5e20; background:#d7ebd9; border-radius:6px; padding:5px; margin-bottom:8px; font-size:13px; }
+          .fitem { display:flex; gap:8px; padding:6px 2px; border-bottom:1px dashed #e0e0e0; }
+          .fitem:last-child { border-bottom:none; }
+          .fnum { flex:0 0 22px; height:22px; border-radius:50%; background:#1e88e5; color:#fff; font-weight:bold; font-size:12px; text-align:center; line-height:22px; }
+          .fbody { flex:1; }
+          .ftitle { font-weight:bold; font-size:13px; }
+          .fbody ul { margin:3px 0 0; padding-left:16px; }
+          .fbody li { font-size:11.5px; line-height:1.5; color:#374151; }
+          .assessment ul { list-style:none; padding:12px 14px; margin:0; background:#e8f5e9; border-radius:8px; }
+          .assessment li { font-size:13px; margin:4px 0; display:flex; gap:8px; }
+          .chk { color:#2e7d32; font-weight:bold; }
+          .impression { font-size:13px; line-height:1.6; padding:10px 14px; background:#eef4fb; border:1px solid #cfe0f2; border-radius:8px; }
+          .disclaimer { margin-top:20px; padding-top:10px; border-top:1px dashed #cfd8dc; color:#78909c; font-size:11px; line-height:1.5; }
+        </style>
+        </head>
+        <body>
+          <div class="page">
+            <header>
+              <h1>{{E(report.Title)}}</h1>
+              <p class="subtitle">{{E(report.Subtitle)}}</p>
+              <p class="patient">{{patientLine}}</p>
+            </header>
+
+            {{contextBlock}}
+
+            <div class="top">
+              <div class="imgcol">
+                {{apStage}}
+                {{latStage}}
+              </div>
+              <div class="summarycol">
+                <div class="sh">부위별 판독 소견</div>
+                {{findings}}
+              </div>
+            </div>
+
+            <h2>종합 소견 (Impression)</h2>
+            <section class="impression">{{E(report.Impression)}}</section>
+
+            <h2>권고사항</h2>
+            <section class="assessment">
+              <ul>{{recs}}</ul>
+            </section>
+
+            <footer class="disclaimer">
+              ※ 본 판독은 단일 X-ray 상 정렬·자세에 대한 <b>참고 자료(초안)</b>이며 확정 진단이 아닙니다.
+              실제 임상 평가는 담당 의사의 의학적 검사 및 환자 증상과 함께 종합적으로 판단합니다.
+            </footer>
+          </div>
+        </body>
+        </html>
+        """;
+    }
+
     private static string Stage(string caption, string dataUri, string annos)
     {
         var inner = string.IsNullOrEmpty(dataUri)

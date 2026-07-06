@@ -237,6 +237,102 @@ public class ClaudeReportService : IClaudeReportService
         return result;
     }
 
+    public async Task<StudyReadingReport> GenerateStudyReadingReportAsync(
+        PatientInfo patient,
+        ChartNote? chart,
+        StudyItem study,
+        string? frontalImagePath,
+        string? lateralImagePath,
+        CancellationToken cancellationToken = default)
+    {
+        var systemPrompt = """
+        당신은 정형·재활 영상의학 판독 보조자다. 한 시점에 촬영된 X-ray(전면 AP, 있으면 측면 Lateral)를
+        보고 척추·골반의 정렬과 자세에 대한 '단일 판독 소견 초안'을 작성한다.
+        반드시 한국어로 작성한다.
+        이것은 '참고용 초안'이며 의사의 최종 판독·진단을 대체하지 않는다.
+        단정적 확진, 수치 과장, 근거 없는 추정은 금지한다.
+        실제로 영상에서 보이는 부위/소견만 다룬다(보이지 않으면 넣지 않는다).
+        전면(AP)에서는 좌우 체중편향·척추측만(scoliosis)·골반 비대칭·어깨 높이 차이 등을,
+        측면(Lateral)에서는 경추전만·흉추후만·머리전방자세(FHP)·골반 전방이동 등을 위주로 본다.
+        문진/차트가 제공되면 그 맥락(주호소·부위)을 판독에 반영하고 ClinicalContext에 한두 문장으로 요약한다.
+        문진/차트가 없으면 ClinicalContext는 빈 문자열로 둔다.
+        반드시 아래 JSON만 출력한다. 마크다운 코드블록 금지.
+
+        {
+          "title": "",
+          "subtitle": "",
+          "clinicalContext": "",
+          "findings": [
+            { "region": "", "details": ["", ""] }
+          ],
+          "impression": "",
+          "recommendations": ["", ""]
+        }
+        """;
+
+        var contentBlocks = new List<object>();
+
+        AddResizedImageBlock(contentBlocks, frontalImagePath);
+        AddText(contentBlocks, frontalImagePath != null
+            ? $"↑ [전면(AP)] 촬영일 {study.StudyDate:yyyy-MM-dd}, {study.StudyDescription}"
+            : "");
+        AddResizedImageBlock(contentBlocks, lateralImagePath);
+        AddText(contentBlocks, lateralImagePath != null ? "↑ [측면(Lateral)]" : "");
+
+        var chartSection = chart is null
+            ? "[문진/차트] (EMR 미연동: 영상 소견 위주로 판독)"
+            : $"""
+            [문진/초진차트]
+            - 진료일: {chart.VisitDate:yyyy-MM-dd}
+            - 담당의: {chart.DoctorName}
+            - 주호소: {chart.ChiefComplaint}
+            - Assessment: {chart.Assessment}
+            - Plan: {chart.Plan}
+            - 원문:
+            {chart.RawText}
+            """;
+
+        AddText(contentBlocks, $"""
+            [환자] {patient.PatientName} / 번호 {patient.PatientId} / {patient.Sex} / {patient.Age}세
+            [영상] {study.ModalityGroup}({study.Modality}) · {study.StudyDescription} · {study.ImageCount}장
+
+            {chartSection}
+
+            위 단일 촬영본을 판독해 다음을 JSON으로 작성하라:
+            - title: 판독지 제목 (예: "전척추 X-ray 자세·정렬 판독")
+            - subtitle: 촬영일과 핵심을 한 줄로
+            - clinicalContext: 문진/차트가 있으면 반영 요약(없으면 빈 문자열)
+            - findings: 확인 가능한 부위별 소견. region(부위명), details(짧은 불릿 1~3개). 부위별로 4~7개 권장.
+            - impression: 종합 소견/인상 2~3문장
+            - recommendations: 권고사항 2~4개
+            영상만으로 판단 불가한 부위는 넣지 말 것.
+            """);
+
+        var payload = new
+        {
+            model = _settings.Claude.Model,
+            max_tokens = Math.Max(_settings.Claude.MaxTokens, 3000),
+            system = systemPrompt,
+            messages = new[]
+            {
+                new { role = "user", content = contentBlocks.ToArray() }
+            }
+        };
+
+        var responseBody = await SendAsync(payload, cancellationToken);
+        var text = ExtractFirstTextBlock(responseBody);
+        var cleaned = CleanJson(text);
+
+        var result = JsonSerializer.Deserialize<StudyReadingReport>(
+            cleaned,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+        if (result is null)
+            throw new InvalidOperationException("Claude 응답 JSON 파싱 실패");
+
+        return result;
+    }
+
     private static void AddText(List<object> blocks, string text)
     {
         if (string.IsNullOrEmpty(text)) return;

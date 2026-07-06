@@ -22,6 +22,10 @@
                 <Button Width="90" Height="30" Margin="0,0,8,0" Content="조회" Command="{Binding SearchCommand}"/>
                 <Button Width="90" Height="30" Margin="0,0,8,0" Content="초기화" Command="{Binding ClearCommand}"/>
                 <Button Width="90" Height="30" Content="PACS 진단" Command="{Binding RunPacsDiagnosticCommand}"/>
+                <Button x:Name="OpenJsPacsButton" Width="170" Height="30" Margin="16,0,0,0"
+                        Content="🔬 판독·계측 (JS PACS)" FontWeight="SemiBold"
+                        Background="#16324F" Foreground="#EAF2FB"
+                        Click="OpenJsPacsButton_Click"/>
                 <TextBlock Margin="20,0,0,0" VerticalAlignment="Center" Foreground="#888"
                            Text="※ EMR 미연동 — PACS 영상 기반 · Claude 판독은 참고용 초안(의사 검토 필요)"/>
             </StackPanel>
@@ -153,6 +157,10 @@
                         <TextBlock Text="{Binding SelectedStudy.Modality, StringFormat=Modality: {0}}" Margin="0,1"/>
                         <TextBlock Text="{Binding SelectedStudy.StudyDescription, StringFormat=검사명: {0}}" TextWrapping="Wrap" Margin="0,1"/>
                         <TextBlock Text="{Binding SelectedStudy.ImageCount, StringFormat=영상 수: {0}장}" Margin="0,1"/>
+                        <Button Margin="0,10,0,0" Height="36" Content="🔍 단일 판독 (현재 선택 검사)" FontWeight="Bold"
+                                Command="{Binding GenerateSingleReadingCommand}"/>
+                        <TextBlock Margin="0,4,0,0" FontSize="11" Foreground="#888" TextWrapping="Wrap"
+                                   Text="※ 선택한 한 검사만으로 판독 초안 생성 (전/후 비교 불필요). EMR 연동 시 초진차트 반영 예정."/>
                     </StackPanel>
                 </GroupBox>
             </Grid>

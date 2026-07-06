@@ -62,6 +62,7 @@ public class MainViewModel : ObservableObject
         SetBeforeCommand = new AsyncRelayCommand(SetBeforeAsync, () => !IsBusy && SelectedStudy != null);
         SetAfterCommand = new AsyncRelayCommand(SetAfterAsync, () => !IsBusy && SelectedStudy != null);
         GenerateComparisonCommand = new AsyncRelayCommand(GenerateComparisonAsync, () => !IsBusy && BeforeStudy != null && AfterStudy != null);
+        GenerateSingleReadingCommand = new AsyncRelayCommand(GenerateSingleReadingAsync, () => !IsBusy && SelectedStudy != null);
         RunPacsDiagnosticCommand = new AsyncRelayCommand(RunPacsDiagnosticAsync, () => !IsBusy);
     }
 
@@ -145,6 +146,7 @@ public class MainViewModel : ObservableObject
     public ICommand SetBeforeCommand { get; }
     public ICommand SetAfterCommand { get; }
     public ICommand GenerateComparisonCommand { get; }
+    public ICommand GenerateSingleReadingCommand { get; }
     public ICommand RunPacsDiagnosticCommand { get; }
 
     private async Task SearchAsync()
@@ -345,6 +347,46 @@ public class MainViewModel : ObservableObject
         }
     }
 
+    private async Task GenerateSingleReadingAsync()
+    {
+        var study = SelectedStudy;
+        if (study == null)
+        {
+            StatusMessage = "먼저 검사를 선택하세요.";
+            return;
+        }
+
+        try
+        {
+            IsBusy = true;
+            HasReport = false;
+            StatusMessage = "Claude 단일 판독 생성 중... (영상 분석, 수십 초 걸릴 수 있습니다)";
+
+            var patient = BuildPatient(study);
+            var frontal = await RenderOrNull(study.FrontalFile);
+            var lateral = await RenderOrNull(study.LateralFile);
+
+            // chart 는 EMR 미연동 시 null. 연동되면 여기서 초진/문진 차트를 주입해 더 세밀하게 판독.
+            var reading = await _claudeReportService.GenerateStudyReadingReportAsync(
+                patient, null, study, frontal, lateral);
+
+            var html = ReportHtmlBuilder.BuildReading(reading, patient, study, frontal, lateral);
+            var path = ReportHtmlBuilder.WriteToTempFile(html, _settings.Pacs.PreviewOutputPath);
+
+            HasReport = true;
+            ReportHtmlReady?.Invoke(path);
+            StatusMessage = "단일 판독 레포트 생성 완료 — [PDF 저장] 가능";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"단일 판독 생성 실패: {ex.Message}";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
     private async Task RunPacsDiagnosticAsync()
     {
         try
@@ -409,6 +451,7 @@ public class MainViewModel : ObservableObject
         (SetBeforeCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         (SetAfterCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         (GenerateComparisonCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+        (GenerateSingleReadingCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         (RunPacsDiagnosticCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         (PrevImageCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
         (NextImageCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();

@@ -19,4 +19,14 @@ public interface IClaudeReportService
         StudyItem afterStudy,
         ComparisonImageSet images,
         CancellationToken cancellationToken = default);
+
+    // 단일 촬영본(전면 + 선택적 측면)에 대한 판독 소견(참고용 초안)을 생성.
+    // chart는 EMR 미연동 시 null. 제공되면 문진/초진차트를 ClinicalContext에 반영해 더 세밀하게 판독.
+    Task<StudyReadingReport> GenerateStudyReadingReportAsync(
+        PatientInfo patient,
+        ChartNote? chart,
+        StudyItem study,
+        string? frontalImagePath,
+        string? lateralImagePath,
+        CancellationToken cancellationToken = default);
 }

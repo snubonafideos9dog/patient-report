@@ -14,6 +14,7 @@ public class StudyItem : ObservableObject
 
     public string StudyInstanceUid { get; set; } = string.Empty;
     public DateTime? StudyDate { get; set; }
+    public string StudyTimeText { get; set; } = string.Empty;   // HHmmss (실시간 목록 정렬용, 최근 촬영 순)
     public string Modality { get; set; } = string.Empty;        // CR, US, RF ...
     public string ModalityGroup { get; set; } = string.Empty;    // X-ray, 초음파, C-ARM ...
     public string StudyDescription { get; set; } = string.Empty;

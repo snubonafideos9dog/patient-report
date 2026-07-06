@@ -20,8 +20,21 @@ public partial class App : Application
 {
     public static IHost AppHost { get; private set; } = default!;
 
+    private static readonly string DiagLog =
+        System.IO.Path.Combine(System.IO.Path.GetTempPath(), "hospitalreport_diag.log");
+    private static void Diag(string msg)
+    {
+        try { System.IO.File.AppendAllText(DiagLog, $"{DateTime.Now:HH:mm:ss.fff} {msg}\n"); } catch { }
+    }
+
     protected override async void OnStartup(StartupEventArgs e)
     {
+        try { System.IO.File.WriteAllText(DiagLog, $"--- start {DateTime.Now:HH:mm:ss} ---\n"); } catch { }
+        DispatcherUnhandledException += (_, ev) => { Diag("DispatcherUnhandledException: " + ev.Exception); ev.Handled = true; };
+        AppDomain.CurrentDomain.UnhandledException += (_, ev) => Diag("AppDomain.UnhandledException: " + ev.ExceptionObject);
+        System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (_, ev) => { Diag("UnobservedTaskException: " + ev.Exception); ev.SetObserved(); };
+        Exit += (_, ev) => Diag($"Application.Exit code={ev.ApplicationExitCode}\nstack:\n{Environment.StackTrace}");
+
         // 한글 DICOM 문자셋(ISO 2022 IR 149 / EUC-KR, CP949) 디코딩용 코드페이지 등록
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
@@ -59,7 +72,11 @@ public partial class App : Application
 
         await AppHost.StartAsync();
 
-        var window = AppHost.Services.GetRequiredService<MainWindow>();
+        // JS PACS 를 앱의 메인 창으로 사용(올인원 허브). 판독 레포트도 JS PACS 안에서 생성된다.
+        var window = new JsPacsWindow();
+        MainWindow = window;
+        ShutdownMode = ShutdownMode.OnMainWindowClose;
+        window.WindowState = WindowState.Maximized;
         window.Show();
 
         base.OnStartup(e);
