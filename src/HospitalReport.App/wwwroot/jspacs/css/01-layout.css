@@ -1,0 +1,186 @@
+
+/* === 통합 레이아웃 === */
+html,body{height:100%;margin:0;background:#0a0e15;}
+#pacsApp{position:fixed;inset:0;height:100vh;width:100vw;display:flex;flex-direction:column;overflow:hidden;}
+#annotatorOverlay{position:fixed;inset:0;height:100vh;width:100vw;z-index:1000;background:var(--bg);display:none;overflow:auto;}
+#annotatorOverlay.show{display:block;}
+#annBackBar{position:fixed;top:8px;right:14px;z-index:1100;display:none;gap:8px;align-items:center;}
+#annBackBar button{font:600 12px/1 -apple-system,system-ui,sans-serif;color:#e8eef6;background:#1f2937;border:1px solid #3a4759;border-radius:7px;padding:9px 15px;cursor:pointer;}
+#annBackBar button:hover{background:#2b3950;}
+#annBackBar .pname{color:#9fb0c4;font:600 12px/1 system-ui;margin-right:2px;background:#141b27;border:1px solid #263347;border-radius:6px;padding:7px 11px;}
+
+/* === annot(iframe 패널) 모드 === */
+html.annotmode #pacsApp{display:none !important;}
+html.comparemode #pacsApp{display:none !important;}
+html.comparemode #analyzeModal.show{display:flex !important;}
+html.comparemode #annotatorOverlay{display:none !important;}
+html.comparemode #cmpView{display:flex !important;}
+html.comparemode body,html.comparemode{overflow:hidden;}
+html.annotmode #annotatorOverlay{display:block !important;position:static;width:100%;height:auto;min-height:100vh;}
+html.annotmode #annBackBar{display:none !important;}
+html.annotmode #annotatorOverlay #app{min-height:100vh;}
+
+/* === 비교 뷰 === */
+#cmpView{position:fixed;inset:0;z-index:1050;background:#0a0e15;display:none;}
+#cmpView.show{display:flex;}
+/* 스크롤바: 평소엔 거의 안 보이고, 호버 시에만 은은하게 (밝은 기본 스크롤바 제거) */
+html.comparemode, html.comparemode *{scrollbar-width:thin;scrollbar-color:#222e40 transparent;}
+#cmpView, #cmpView *{scrollbar-width:thin;scrollbar-color:#222e40 transparent;}
+#cmpView ::-webkit-scrollbar, html.comparemode ::-webkit-scrollbar{width:8px;height:8px;}
+#cmpView ::-webkit-scrollbar-track, html.comparemode ::-webkit-scrollbar-track{background:transparent;}
+#cmpView ::-webkit-scrollbar-thumb, html.comparemode ::-webkit-scrollbar-thumb{background:#1c283a;border-radius:8px;border:2px solid transparent;background-clip:content-box;}
+#cmpView *:hover::-webkit-scrollbar-thumb, html.comparemode *:hover::-webkit-scrollbar-thumb{background:#2a3850;background-clip:content-box;}
+#cmpView ::-webkit-scrollbar-thumb:hover, html.comparemode ::-webkit-scrollbar-thumb:hover{background:#36486a;background-clip:content-box;}
+#cmpView ::-webkit-scrollbar-corner, html.comparemode ::-webkit-scrollbar-corner{background:transparent;}
+#cmpBar{flex:0 0 248px;width:248px;background:linear-gradient(180deg,#121a28,#0d121b);border-right:1px solid #1b2535;display:flex;flex-direction:column;gap:8px;padding:12px 11px;box-sizing:border-box;color:#e8eef6;font-family:-apple-system,system-ui,sans-serif;overflow-y:auto;transition:flex-basis .22s ease,width .22s ease;}
+/* 툴바 자동 숨기기: tt로 완전히 숨김/표시 (마우스 hover로는 안 나타남) */
+#cmpView.autohide #cmpBar{flex:0 0 0px;width:0;min-width:0;overflow:hidden;padding:0;border-right:none;}
+#cmpView.autohide #cmpBar>*{opacity:0;pointer-events:none;}
+#cmpBar .tbarBtn{flex:1 1 0;font-size:11px;font-weight:700;background:#16324f;border:1px solid #2a4a6e;color:#cfe0f2;border-radius:8px;padding:7px 10px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap;transition:background .12s;}
+#cmpBar .tbarBtn:hover{background:#1d3f63;border-color:#3d5e88;}
+#cmpBar .tbarBtn.on{background:var(--accent,#3b82f6);border-color:var(--accent,#3b82f6);color:#fff;}
+#cmpBar .tbarBtn .kc{font-size:9px;font-weight:700;color:#7e94ad;background:#0d1622;border:1px solid #28384f;border-radius:4px;padding:1px 4px;}
+#cmpBar .tbarBtn.on .kc{color:#e8f0fb;border-color:rgba(255,255,255,.35);}
+#cmpBar .ctitle{font-weight:800;font-size:14px;letter-spacing:1.5px;color:#fff;padding-bottom:10px;border-bottom:1px solid #1d2735;display:flex;flex-direction:column;gap:9px;}
+#cmpBar .ctitle .ctitle-name{display:block;}
+#cmpBar .ctitle .ctitle-acts{display:flex;gap:6px;}
+#cmpBar #cmpStatus{font-size:11px;font-weight:600;color:#ffd166;background:#16203033;border:1px solid #243044;border-radius:6px;padding:7px 9px;line-height:1.4;min-height:16px;}
+#cmpBar button{background:#19212e;color:#dde6f1;border:1px solid #2a3852;padding:8px;border-radius:6px;cursor:pointer;font-size:11.5px;font-weight:600;}
+#cmpBar button:hover{background:#212c3c;border-color:#3d5273;}
+/* ── 좌측 모드: 버튼을 정사각형 격자로 ── */
+#cmpView:not(.toolbar-top) #cmpTools{display:flex;flex-direction:column;gap:10px;}
+#cmpView:not(.toolbar-top) #cmpTools .ctgrp{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;}
+/* 격자 안 버튼 = 정사각형, 라벨 위 / 단축키 아래 세로 배치 */
+#cmpView:not(.toolbar-top) #cmpTools .ctgrp button{
+  aspect-ratio:1/1;width:100%;min-width:0;padding:4px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
+  text-align:center;font-size:11px;font-weight:600;line-height:1.2;border-radius:8px;
+  background:#19212e;border:1px solid #2a3852;color:#dde6f1;overflow:hidden;
+}
+#cmpView:not(.toolbar-top) #cmpTools .ctgrp button:hover{background:#212c3c;border-color:#3d5273;}
+#cmpView:not(.toolbar-top) #cmpTools .ctgrp button.prim{background:var(--accent,#3b82f6);border-color:var(--accent,#3b82f6);color:#fff;}
+#cmpView:not(.toolbar-top) #cmpTools .ctgrp button.prim:hover{filter:brightness(1.08);}
+#cmpView:not(.toolbar-top) #cmpTools .ctgrp button>span:not(.kc){display:block;word-break:keep-all;}
+#cmpView:not(.toolbar-top) #cmpTools .ctgrp button .kc{
+  font-size:8.5px;font-weight:700;color:#8ca0bd;background:#0e1622;border:1px solid #2a3a52;
+  border-radius:4px;padding:1px 5px;line-height:1.3;
+}
+/* 드롭다운·입력칸이 든 그룹은 격자 제외(전체 폭 유지) */
+#cmpView:not(.toolbar-top) #cmpTools .ctgrp.ctfull{display:flex;flex-direction:column;gap:6px;}
+#cmpView:not(.toolbar-top) #cmpTools .ctgrp.ctfull select,
+#cmpView:not(.toolbar-top) #cmpTools .ctgrp.ctfull input{width:100%;box-sizing:border-box;}
+#cmpBar .hintx{font-size:10.5px;color:#5f7188;line-height:1.5;margin-top:auto;}
+/* ── 툴바 상단 배치 (설정에서 전환) — 한 줄 정돈형 ── */
+#cmpView.toolbar-top{flex-direction:column;}
+#cmpView.toolbar-top #cmpBar{
+  flex:0 0 auto;width:auto;min-height:48px;flex-direction:row;flex-wrap:wrap;align-items:center;gap:6px 0;
+  border-right:none;border-bottom:1px solid #1d2a3e;padding:7px 10px;
+  overflow-x:hidden;overflow-y:hidden;
+  background:linear-gradient(180deg,#141d2c,#0e1622);box-shadow:0 2px 10px rgba(0,0,0,.35);
+  transition:min-height .2s ease;
+}
+/* 타이틀 */
+#cmpView.toolbar-top #cmpBar .ctitle{
+  padding:0 12px 0 2px;margin:0;border:none;border-right:1px solid #243044;
+  font-size:14px;letter-spacing:1.2px;line-height:32px;white-space:nowrap;flex:0 0 auto;color:#fff;
+  flex-direction:row;align-items:center;gap:10px;
+}
+#cmpView.toolbar-top #cmpBar .ctitle .ctitle-acts{gap:6px;}
+#cmpView.toolbar-top #cmpBar .ctitle .tbarBtn{flex:0 0 auto;padding:5px 9px;}
+/* 상태 텍스트 */
+#cmpView.toolbar-top #cmpBar #cmpStatus{
+  margin:0 10px;min-height:0;padding:5px 9px;white-space:nowrap;flex:0 0 auto;
+  background:#16203022;border:1px solid #243044;border-radius:6px;font-size:10.5px;
+}
+/* 도구 영역: 가로 흐름, 넘치면 줄바꿈 */
+#cmpView.toolbar-top #cmpTools{display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;gap:6px 0;margin:0;}
+#cmpView.toolbar-top #cmpTools .ctgrp{
+  display:flex;flex-direction:row;flex-wrap:nowrap;align-items:center;gap:5px;margin:0;padding:0 10px;border:none;
+  border-right:1px solid #1c2738;
+}
+#cmpView.toolbar-top #cmpTools .ctgrp:last-child{border-right:none;}
+/* 버튼 통일 */
+#cmpView.toolbar-top #cmpBar button{
+  height:30px;padding:0 9px;border-radius:6px;font-size:11px;font-weight:600;
+  display:inline-flex;align-items:center;gap:4px;white-space:nowrap;
+  background:#1a2433;border:1px solid #283750;color:#dde6f1;
+}
+#cmpView.toolbar-top #cmpBar button:hover{background:#223150;border-color:#3a5277;}
+#cmpView.toolbar-top #cmpBar button.prim{background:var(--accent,#3b82f6);border-color:var(--accent,#3b82f6);color:#fff;}
+#cmpView.toolbar-top #cmpBar button.prim:hover{filter:brightness(1.08);}
+/* 단축키 칩 */
+#cmpView.toolbar-top #cmpBar button .kc{
+  font-size:8.5px;font-weight:700;color:#8ca0bd;background:#0e1622;border:1px solid #2a3a52;
+  border-radius:3px;padding:1px 3px;line-height:1.3;
+}
+#cmpView.toolbar-top #cmpBar button.prim .kc{color:#dbe7ff;background:#ffffff22;border-color:#ffffff33;}
+/* 드롭다운 */
+#cmpView.toolbar-top #cmpBar select{
+  height:30px;border-radius:6px;background:#1a2433;border:1px solid #283750;color:#dde6f1;
+  font-size:11px;padding:0 7px;cursor:pointer;max-width:130px;
+}
+/* 메모 입력 */
+#cmpView.toolbar-top #cmpBar #cmpPatNote{
+  width:150px;height:30px;border-radius:6px;background:#0e1622;border:1px solid #283750;
+  color:#dde6f1;font-size:11px;padding:0 10px;box-sizing:border-box;
+}
+#cmpView.toolbar-top #cmpManual{display:none;}
+/* ── 툴바 숨김(autohide): 얇은 상단 바만 남기고 그 안에 복귀 핸들 ── */
+/* 좌측 배치: 세로 툴바를 폭 0으로 접되, 상단 복귀 바는 별도 표시 */
+#cmpView.autohide:not(.toolbar-top) #cmpBar{flex:0 0 0px;width:0;min-width:0;overflow:hidden;padding:0;border-right:none;}
+#cmpView.autohide:not(.toolbar-top) #cmpBar>*{opacity:0;pointer-events:none;}
+/* 상단 배치: 툴바를 0 높이로 */
+#cmpView.toolbar-top.autohide #cmpBar{flex:0 0 0px;height:0;min-height:0;width:auto;overflow:hidden;padding:0;border-bottom:none;}
+#cmpView.toolbar-top.autohide #cmpBar>*{opacity:0;pointer-events:none;}
+/* autohide 복귀 바: 화면 맨 위 고정 가로 바. 패널을 그만큼 아래로 밀어 헤더와 안 겹침 */
+#cmpShowTab{display:none;}
+#cmpView.autohide #cmpShowTab{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  position:absolute;top:0;left:0;right:0;z-index:1066;height:26px;box-sizing:border-box;
+  background:linear-gradient(180deg,#141d2c,#0e1622);border-bottom:1px solid #1d2a3e;
+  padding:0 16px;cursor:pointer;color:#9ec5fe;font-size:11px;font-weight:700;letter-spacing:.5px;
+}
+#cmpShowTab #cmpShowTabStatus{flex:1 1 auto;min-width:0;text-align:left;color:#ffd166;font-weight:700;letter-spacing:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+#cmpShowTab #cmpShowTabStatus:empty{display:none;}
+#cmpShowTab .cmpShowTabHint{flex:0 0 auto;}
+#cmpView.autohide #cmpShowTab:hover{color:#cfe0f2;background:linear-gradient(180deg,#1a2638,#0e1622);}
+/* 패널 영역을 복귀 바 높이만큼 아래로 */
+#cmpView.autohide #cmpPanels{margin-top:26px;}
+#cmpPanels{flex:1 1 auto;display:flex;min-width:0;min-height:0;}
+#cmpRight{flex:1 1 auto;display:flex;flex-direction:column;min-width:0;}
+#cmpGraph{flex:0 0 auto;max-height:42%;overflow:auto;background:#0c1119;border-top:2px solid #1b2535;padding:12px 16px;color:#e8eef6;font-family:-apple-system,system-ui,sans-serif;}
+#cmpGraphEmpty{color:#5f7188;font-size:12.5px;line-height:1.6;text-align:center;padding:16px;}
+#cmpGraphEmpty b{color:#9ec5fe;}
+#cmpGraph .gtitle{font-weight:800;font-size:13px;letter-spacing:.5px;color:#fff;margin-bottom:4px;display:flex;align-items:center;gap:10px;}
+#cmpGraph .gsub{font-size:11px;color:#9fb0c4;margin-bottom:12px;}
+#cmpGraph .grow{display:grid;grid-template-columns:150px 1fr 96px;gap:10px;align-items:center;margin-bottom:9px;}
+#cmpGraph .glabel{font-size:12px;font-weight:700;color:#cfe0f2;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+#cmpGraph .gbars{position:relative;height:30px;background:#0a0e15;border:1px solid #1d2735;border-radius:6px;overflow:hidden;}
+#cmpGraph .gbar{position:absolute;top:0;height:100%;display:flex;align-items:center;font-size:10.5px;font-weight:800;color:#08121f;padding:0 6px;box-sizing:border-box;white-space:nowrap;transition:width .5s cubic-bezier(.3,1,.4,1);}
+#cmpGraph .gbar.before{top:0;height:50%;background:linear-gradient(90deg,#5b7187,#8499ad);color:#0a0e15;}
+#cmpGraph .gbar.after{top:50%;height:50%;}
+#cmpGraph .gdelta{font-size:12.5px;font-weight:800;text-align:left;white-space:nowrap;}
+#cmpGraph .gdelta .arrow{font-size:13px;}
+#cmpGraph .gbetter{color:#46e08a;}
+#cmpGraph .gworse{color:#ff7a7a;}
+#cmpGraph .gsame{color:#9fb0c4;}
+#cmpGraph .gsum{font-size:12px;font-weight:700;color:#cfe0f2;margin:2px 0 12px;}
+#cmpGraph .gscore .num{font-size:30px;font-weight:900;line-height:1;}
+#cmpGraph .gscore .lbl{font-size:12px;color:#cfe0f2;line-height:1.4;}
+#cmpGraph .glegend{font-size:10.5px;color:#7e8ea3;margin-top:4px;}
+/* item5: iframe(패널) 내부 자체 툴바 숨김 — 부모 공통 툴바만 사용. 팝업(새 창)은 유지 */
+html.panemode #annotatorOverlay #bar{display:none !important;}
+/* 패널모드: 문서를 100vh 고정 컬럼으로 만들어 바깥(문서) 스크롤바 제거 → #main만 내부 스크롤 */
+html.panemode, html.panemode body{height:100%;margin:0;overflow:hidden;}
+html.panemode #annotatorOverlay{height:100vh !important;min-height:0 !important;overflow:hidden !important;}
+html.panemode #annotatorOverlay #app{display:flex !important;flex-direction:row;align-items:stretch !important;height:100vh;min-height:0;}
+html.panemode #annotatorOverlay #side{display:none !important;}
+html.panemode #annotatorOverlay #main{flex:1 1 auto;min-width:0;min-height:0;height:100vh;padding:6px;overflow:auto;display:grid;place-items:safe center;place-content:safe center;}
+html.panemode #annotatorOverlay #main>canvas{margin:0;}
+/* 패널모드 스크롤바: 어둡고 은은하게(밝은 기본 스크롤바 제거) */
+html.panemode *{scrollbar-width:thin;scrollbar-color:#1c283a transparent;}
+html.panemode ::-webkit-scrollbar{width:8px;height:8px;}
+html.panemode ::-webkit-scrollbar-track{background:transparent;}
+html.panemode ::-webkit-scrollbar-thumb{background:#1c283a;border-radius:8px;border:2px solid transparent;background-clip:content-box;}
+html.panemode ::-webkit-scrollbar-thumb:hover{background:#36486a;background-clip:content-box;}
+html.panemode ::-webkit-scrollbar-corner{background:transparent;}
