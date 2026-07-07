@@ -629,7 +629,11 @@ function layout(){ if(!imgEl) return;
     if(pane){ const main=$("main"); const w=(main?main.clientWidth:window.innerWidth)-12; baseW=Math.max(80,w)*zoom; }
     else baseW=Math.min(window.innerWidth*0.55,900)*zoom;
   }
-  drawW=baseW; scale=drawW/natW; drawH=natH*scale; cv.width=drawW; cv.height=drawH; redraw(); updStatus(); }
+  drawW=baseW; scale=drawW/natW; drawH=natH*scale; cv.width=drawW; cv.height=drawH;
+  // 확대로 이미지가 컨테이너를 넘치면 중앙정렬 대신 시작정렬(imgOverflow) → 상하좌우 드래그 패닝 모두 가능
+  const _m=$("main");
+  if(_m){ const over=(drawW>_m.clientWidth+1)||(drawH>_m.clientHeight+1); _m.classList.toggle("imgOverflow", over); }
+  redraw(); updStatus(); }
 function redraw(){ if(!imgEl) return; drawScene(ctx,scale,true); renderTable(); renderLevels(); renderRot(); renderMeasures(); renderReport(); if(typeof reportMetrics==="function") reportMetrics(); }
 
 function renderTable(){ const pm=parseFloat($("pxmm").value), tb=document.querySelector("#tbl tbody"); tb.innerHTML="";
@@ -805,6 +809,7 @@ function renderReport(){ const el=$("report"); if(el) el.textContent = imgEl ? b
 function hitTestLabel(px,py){ for(let i=labelHits.length-1;i>=0;i--){ const b=labelHits[i]; if(px>=b.x1&&px<=b.x2&&py>=b.y1&&py<=b.y2) return b; } return null; }
 cv.addEventListener("click",e=>{
   if(!imgEl) return;
+  if(window.__panSuppressClick__){ window.__panSuppressClick__=false; return; } // 방금 패닝 드래그였으면 클릭 무시
   // 주석 잠금: 그리기 도구 동작 차단. 단 'point'(라벨 선택/이동 보기)는 통과시켜 기존 작도 확인 가능.
   if(annLocked && tool && tool!=="point"){ setStatus("🔒 주석이 잠겨 있습니다.","#ffb454"); return; }
   const r=cv.getBoundingClientRect(); const sx=cv.width/r.width, sy=cv.height/r.height;
@@ -875,6 +880,57 @@ cv.addEventListener("mousemove",e=>{
   mctx.moveTo(mag.width/2,0);mctx.lineTo(mag.width/2,mag.height); mctx.moveTo(0,mag.height/2);mctx.lineTo(mag.width,mag.height/2);mctx.stroke();
 });
 cv.addEventListener("mouseleave",()=>mag.style.display="none");
+// 마우스 휠: 위로 굴리면 확대, 아래로 굴리면 축소 (PACS 표준 동작). 이미지 위에서는 페이지 스크롤 대신 줌.
+cv.addEventListener("wheel",e=>{
+  if(!imgEl) return;
+  e.preventDefault();
+  zoomBy(e.deltaY<0 ? 1.25 : 1/1.25);
+},{passive:false});
+
+// ===== 확대 후 왼쪽 드래그로 이미지 이동(패닝) — 보기 모드('point')에서만. 계측 작도와 충돌 안 함. =====
+// 주의: 레이아웃에 따라 가로 스크롤은 #main, 세로 스크롤은 바깥 #annotatorOverlay 가 담당할 수 있어
+// 축(가로/세로)별로 실제 스크롤 컨테이너를 따로 찾아 각각 적용한다.
+(function(){
+  let panning=false, moved=false, sx0=0, sy0=0;
+  let cx=null, cy=null, sl0=0, st0=0;
+  function scrollerX(el){
+    for(let n=el&&el.parentElement; n; n=n.parentElement){
+      const s=getComputedStyle(n);
+      if(/(auto|scroll)/.test(s.overflowX)&&n.scrollWidth>n.clientWidth+1) return n;
+    }
+    return null;
+  }
+  function scrollerY(el){
+    for(let n=el&&el.parentElement; n; n=n.parentElement){
+      const s=getComputedStyle(n);
+      if(/(auto|scroll)/.test(s.overflowY)&&n.scrollHeight>n.clientHeight+1) return n;
+    }
+    return document.scrollingElement||null;
+  }
+  function canPan(){ return !!imgEl && tool==="point"; }
+  cv.addEventListener("mousedown",e=>{
+    if(e.button!==0 || !canPan()) return;
+    cx=scrollerX(cv); cy=scrollerY(cv);
+    sx0=e.clientX; sy0=e.clientY;
+    sl0=cx?cx.scrollLeft:0; st0=cy?cy.scrollTop:0;
+    panning=true; moved=false; cv.style.cursor="grabbing";
+    e.preventDefault();
+  });
+  window.addEventListener("mousemove",e=>{
+    if(!panning) return;
+    const dx=e.clientX-sx0, dy=e.clientY-sy0;
+    if(Math.abs(dx)+Math.abs(dy)>3) moved=true;
+    if(cx) cx.scrollLeft=sl0-dx;
+    if(cy) cy.scrollTop=st0-dy;
+    e.preventDefault();
+  });
+  window.addEventListener("mouseup",()=>{
+    if(!panning) return;
+    panning=false; cv.style.cursor=canPan()?"grab":"";
+    if(moved) window.__panSuppressClick__=true;  // 드래그였으면 뒤따르는 click(라벨선택 등) 무시
+  },true);
+  cv.addEventListener("mouseenter",()=>{ if(canPan()&&!panning) cv.style.cursor="grab"; });
+})();
 
 function setTool(t){
   // 주석 잠금: 그리기 도구 선택 차단(보기/이동 'point'는 허용)

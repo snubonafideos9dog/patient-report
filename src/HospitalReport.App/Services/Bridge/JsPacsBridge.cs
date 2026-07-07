@@ -1,8 +1,13 @@
+using System.Drawing;
+using System.Drawing.Imaging;
 using System.Globalization;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using FellowOakDicom;
+using FellowOakDicom.Imaging;
 using FellowOakDicom.Imaging.Codec;
+using FellowOakDicom.IO.Buffer;
 using HospitalReport.App.Configuration;
 using HospitalReport.App.Models;
 using HospitalReport.App.Services.Interfaces;
@@ -146,38 +151,129 @@ public sealed class JsPacsBridge
         };
     }
 
-    // ── DICOM → (압축이면) 비압축 변환 → base64 ──
+    // ── DICOM → 웹 파서가 읽을 수 있는 형태로 변환 → base64 ──
+    //
+    // 웹 내장 파서(JSHADICOM)는 흑백(MONOCHROME) 단일 프레임만 처리한다.
+    //  · 흑백: (압축이면) Explicit VR LE 비압축으로 트랜스코드 후 그대로 전달.
+    //  · 컬러(초음파 YBR/RGB/팔레트) 또는 멀티프레임: 흑백 파서가 잘못 그려
+    //    "겹쳐 보이는" 문제가 생긴다 → fo-dicom(DicomImage)으로 프레임0을 올바르게
+    //    렌더한 뒤, 비압축 RGB(Explicit VR LE) DICOM 으로 재포장해 전달한다.
     private async Task<string> GetDicomBase64Async(string path, CancellationToken ct)
     {
         if (string.IsNullOrEmpty(path) || !File.Exists(path))
             throw new FileNotFoundException($"DICOM 파일 없음: {path}");
 
         var file = await DicomFile.OpenAsync(path);
+        var ds = file.Dataset;
+
+        var samples = ds.GetSingleValueOrDefault<ushort>(DicomTag.SamplesPerPixel, 1);
+        var photometric = ds.GetSingleValueOrDefault(DicomTag.PhotometricInterpretation, "MONOCHROME2");
+        var frames = ds.GetSingleValueOrDefault(DicomTag.NumberOfFrames, 1);
+        var isColor = samples > 1 ||
+            !(photometric.StartsWith("MONOCHROME", StringComparison.OrdinalIgnoreCase));
+        var isMultiFrame = frames > 1;
+
         byte[] bytes;
-        try
+        if (isColor || isMultiFrame)
         {
-            if (file.Dataset.InternalTransferSyntax.IsEncapsulated)
+            // 컬러/멀티프레임 → 네이티브 렌더 후 비압축 RGB DICOM 재포장 (무거우므로 백그라운드)
+            bytes = await Task.Run(() => BuildRenderedRgbDicom(file), ct);
+        }
+        else
+        {
+            try
             {
-                // 압축(JPEG/JPEG2000/RLE/JPEG-LS 등) → Explicit VR LE 비압축으로 변환
-                var transcoder = new DicomTranscoder(
-                    file.Dataset.InternalTransferSyntax, DicomTransferSyntax.ExplicitVRLittleEndian);
-                var xcoded = transcoder.Transcode(file);
-                using var ms = new MemoryStream();
-                await xcoded.SaveAsync(ms);
-                bytes = ms.ToArray();
+                if (ds.InternalTransferSyntax.IsEncapsulated)
+                {
+                    // 압축(JPEG/JPEG2000/RLE/JPEG-LS 등) → Explicit VR LE 비압축으로 변환
+                    var transcoder = new DicomTranscoder(
+                        ds.InternalTransferSyntax, DicomTransferSyntax.ExplicitVRLittleEndian);
+                    var xcoded = transcoder.Transcode(file);
+                    using var ms = new MemoryStream();
+                    await xcoded.SaveAsync(ms);
+                    bytes = ms.ToArray();
+                }
+                else
+                {
+                    bytes = await File.ReadAllBytesAsync(path, ct);
+                }
             }
-            else
+            catch
             {
+                // 변환 실패 시 원본 그대로 전달(웹 파서가 처리 가능하면 처리)
                 bytes = await File.ReadAllBytesAsync(path, ct);
             }
         }
-        catch
-        {
-            // 변환 실패 시 원본 그대로 전달(웹 파서가 처리 가능하면 처리)
-            bytes = await File.ReadAllBytesAsync(path, ct);
-        }
 
         return Convert.ToBase64String(bytes);
+    }
+
+    // 컬러/멀티프레임 DICOM 을 fo-dicom 으로 프레임0 렌더 → 비압축 RGB(Explicit VR LE) DICOM 바이트로 생성.
+    private static byte[] BuildRenderedRgbDicom(DicomFile file)
+    {
+        var src = file.Dataset;
+        var image = new DicomImage(src);
+        using var bmp = image.RenderImage(0).AsClonedBitmap();
+        var rgb = BitmapToRgb(bmp, out int w, out int h);
+
+        var outDs = new DicomDataset(DicomTransferSyntax.ExplicitVRLittleEndian);
+        // 뷰어 표시에 필요한 메타데이터 태그 복사 (환자/검사 정보, 픽셀 간격 등)
+        foreach (var tg in RgbCopyTags)
+            if (src.Contains(tg)) outDs.AddOrUpdate(src.GetDicomItem<DicomItem>(tg));
+
+        outDs.AddOrUpdate(DicomTag.PhotometricInterpretation, "RGB");
+        outDs.AddOrUpdate(DicomTag.SamplesPerPixel, (ushort)3);
+        outDs.AddOrUpdate(DicomTag.PlanarConfiguration, (ushort)0);
+        outDs.AddOrUpdate(DicomTag.BitsAllocated, (ushort)8);
+        outDs.AddOrUpdate(DicomTag.BitsStored, (ushort)8);
+        outDs.AddOrUpdate(DicomTag.HighBit, (ushort)7);
+        outDs.AddOrUpdate(DicomTag.PixelRepresentation, (ushort)0);
+        outDs.AddOrUpdate(DicomTag.Rows, (ushort)h);
+        outDs.AddOrUpdate(DicomTag.Columns, (ushort)w);
+
+        var pd = DicomPixelData.Create(outDs, true);
+        pd.AddFrame(new MemoryByteBuffer(rgb));
+
+        using var ms = new MemoryStream();
+        new DicomFile(outDs).Save(ms);
+        return ms.ToArray();
+    }
+
+    private static readonly DicomTag[] RgbCopyTags =
+    {
+        DicomTag.PatientID, DicomTag.PatientName, DicomTag.PatientBirthDate, DicomTag.PatientSex,
+        DicomTag.StudyDate, DicomTag.StudyTime, DicomTag.Modality, DicomTag.StudyDescription,
+        DicomTag.SeriesDescription, DicomTag.PixelSpacing, DicomTag.ImagerPixelSpacing,
+        DicomTag.SOPClassUID, DicomTag.SOPInstanceUID, DicomTag.InstanceNumber, DicomTag.ViewPosition
+    };
+
+    // System.Drawing.Bitmap(32bpp) → 인터리브드 RGB 바이트(3채널).
+    private static byte[] BitmapToRgb(Bitmap bmp, out int w, out int h)
+    {
+        w = bmp.Width; h = bmp.Height;
+        var rect = new Rectangle(0, 0, w, h);
+        var data = bmp.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+        try
+        {
+            var stride = data.Stride;
+            var buf = new byte[stride * h];
+            Marshal.Copy(data.Scan0, buf, 0, buf.Length);
+            var outb = new byte[w * h * 3];
+            int oi = 0;
+            for (int y = 0; y < h; y++)
+            {
+                int rowOff = y * stride;
+                for (int x = 0; x < w; x++)
+                {
+                    int p = rowOff + x * 4;      // BGRA
+                    outb[oi++] = buf[p + 2];     // R
+                    outb[oi++] = buf[p + 1];     // G
+                    outb[oi++] = buf[p + 0];     // B
+                }
+            }
+            return outb;
+        }
+        finally { bmp.UnlockBits(data); }
     }
 
     // ── 주석 사이드카 읽기/쓰기 (원본 옆 {경로}.jsha.json) ──

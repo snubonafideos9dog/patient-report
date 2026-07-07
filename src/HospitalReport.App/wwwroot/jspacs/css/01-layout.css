@@ -177,6 +177,10 @@ html.panemode #annotatorOverlay #app{display:flex !important;flex-direction:row;
 html.panemode #annotatorOverlay #side{display:none !important;}
 html.panemode #annotatorOverlay #main{flex:1 1 auto;min-width:0;min-height:0;height:100vh;padding:6px;overflow:auto;display:grid;place-items:safe center;place-content:safe center;}
 html.panemode #annotatorOverlay #main>canvas{margin:0;}
+/* 확대로 이미지가 화면을 넘칠 때: 중앙정렬 대신 시작(좌상단)정렬 → 상하좌우 스크롤(드래그 패닝) 모두 도달 가능.
+   (그리드 중앙정렬 상태에서는 세로 오버플로가 스크롤로 닿지 않는 브라우저 특성 회피) */
+#annotatorOverlay #main.imgOverflow{place-items:safe start;place-content:safe start;}
+html.panemode #annotatorOverlay #main.imgOverflow{place-items:safe start;place-content:safe start;}
 /* 패널모드 스크롤바: 어둡고 은은하게(밝은 기본 스크롤바 제거) */
 html.panemode *{scrollbar-width:thin;scrollbar-color:#1c283a transparent;}
 html.panemode ::-webkit-scrollbar{width:8px;height:8px;}

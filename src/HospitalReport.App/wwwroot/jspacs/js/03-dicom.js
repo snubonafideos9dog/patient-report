@@ -164,6 +164,7 @@ function parse(arrbuf){
     rows:num("0028,0010"), columns:num("0028,0011"),
     bitsAllocated:num("0028,0100"), bitsStored:num("0028,0101"), highBit:num("0028,0102"),
     pixelRepresentation:num("0028,0103")||0, samplesPerPixel:num("0028,0002")||1,
+    planarConfig:num("0028,0006")||0,
     photometric:str("0028,0004")||"MONOCHROME2",
     windowCenter:num("0028,1050"), windowWidth:num("0028,1051"),
     rescaleIntercept:num("0028,1052"), rescaleSlope:num("0028,1053"),
@@ -207,6 +208,17 @@ function getPixels(parsed){
   if(TS_UNCOMPRESSED[ts]){
     const W=info.columns, H=info.rows, ba=info.bitsAllocated||16;
     const off=pixelInfo.offset, n=W*H;
+    // 컬러(초음파 등): 8bit RGB 3채널. 네이티브(C#)가 YBR/JPEG 를 비압축 RGB 로 변환해 전달한다.
+    if((info.samplesPerPixel||1)>=3){
+      const rgb=new Uint8Array(n*3);
+      if(info.planarConfig===1){ // 평면형 RRR..GGG..BBB
+        const pl=n;
+        for(let i=0;i<n;i++){ rgb[i*3]=u8[off+i]; rgb[i*3+1]=u8[off+pl+i]; rgb[i*3+2]=u8[off+2*pl+i]; }
+      } else {                    // 인터리브드 RGBRGB
+        for(let i=0;i<n*3;i++) rgb[i]=u8[off+i];
+      }
+      return {pixels:rgb, width:W, height:H, color:true};
+    }
     const out=new Int32Array(n);
     if(ba===16){ const signed=info.pixelRepresentation===1;
       const dv=new DataView(u8.buffer,u8.byteOffset,u8.byteLength);
@@ -222,6 +234,15 @@ function getPixels(parsed){
 function renderToCanvas(parsed, canvas){
   const px=getPixels(parsed); const {info}=parsed;
   const W=px.width, H=px.height, data=px.pixels;
+  // 컬러(RGB 3채널): window/level 없이 그대로 그린다.
+  if(px.color){
+    canvas.width=W; canvas.height=H;
+    const ctx=canvas.getContext("2d");
+    const img=ctx.createImageData(W,H); const o=img.data;
+    for(let i=0,n=W*H;i<n;i++){ const j=i*4,k=i*3; o[j]=data[k]; o[j+1]=data[k+1]; o[j+2]=data[k+2]; o[j+3]=255; }
+    ctx.putImageData(img,0,0);
+    return {width:W,height:H};
+  }
   const slope=(info.rescaleSlope!=null?info.rescaleSlope:1), intercept=(info.rescaleIntercept!=null?info.rescaleIntercept:0);
   let wc=info.windowCenter, ww=info.windowWidth;
   const stored=info.bitsStored||14;
